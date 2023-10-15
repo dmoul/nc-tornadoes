@@ -7,5 +7,6 @@ Data from the [Storm Events](http://www.ncdc.noaa.gov/stormevents/) Database pub
 
 ## Licenses
 
-source files: MIT license
-generated content: CC-BY 4.0
+Source files: MIT license
+
+Generated content: [CC-BY 4.0](http://creativecommons.org/licenses/by/4.0/)
