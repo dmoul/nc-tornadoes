@@ -1,0 +1,38 @@
+project:
+  type: book
+  output-dir: "_book"
+  
+book:
+  title: "Five decades of tornadoes in North Carolina"
+  subtitle: "And changes in the data generating processes that recorded them"
+  author: "[Daniel Moul](https://dmoul.github.io)"
+  date: today
+  cover-image: "./images/green-county-tornado-2014-3575860.jpg"
+  #cover-image: "./images/ABQ_65658_393118.png"
+  cover-image-alt: "Tornado on the ground, Greene County North Carolian April 25 2014 (Courtesy WNCT)"
+  page-footer: 
+    center: "Copyright 2023 by [Daniel Moul](https://dmoul.github.io). License: [CC-BY 4.0](http://creativecommons.org/licenses/by/4.0/)"
+    background: dark
+  chapters: 
+    - index.qmd
+    - tornadoes.qmd
+    - property-damage.qmd
+    - injury-death.qmd
+    - data-generating-changes.qmd
+    - notes.qmd
+
+execute:
+  freeze: auto  # re-render only when source changes
+
+#bibliography: references.bib
+license: "CC BY"
+appendix-style: default
+
+format: 
+  html:
+    toc: true
+    number-sections: true
+    number-depth: 3
+    code-fold: true
+    code-summary: "Show the code"
+

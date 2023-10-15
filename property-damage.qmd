@@ -1,0 +1,377 @@
+# Property damage
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+source("./setup-and-data-prep.R")
+
+data_for_modeling_with_cities <- dta |>
+  mutate(intersect_populated_area = st_intersects(dta, nc_cities),
+         n_intersects = map_dbl(intersect_populated_area, function(x) length(x))
+         ) |>
+  select(-intersect_populated_area) |>
+  bind_rows(dta_non_mapping) |>
+  distinct(event_id, .keep_all = TRUE)
+
+```
+
+The National Weather Service provides property damage estimates associated with tornadoes. The quality of the estimates  limits what we can usefully do with it. As noted on the Storm Data FAQ Page:^[<https://www.ncdc.noaa.gov/stormevents/faq.jsp> ]
+
+>How are the damage amounts determined?
+>
+>The National Weather Service makes a best guess using all available data at the time of the publication. The damage amounts are received from a variety of sources, including those listed above in the Data Sources section. Property and Crop damage should be considered as a broad estimate. Damage amounts are not adjusted for inflation and are the values that were entered at the time of the event.
+
+And in the Online Tornado FAQ^[<https://www.spc.noaa.gov/faq/tornado/> ]
+
+>Who surveys tornado damage? What's the criteria for the National Weather Service to do a survey? 
+>
+>This varies from place to place; and there are no rigid criteria. The responsibility for damage survey decisions at each NWS office usually falls on the Warning-Coordination Meteorologist (WCM) and/or the Meteorologist in Charge (MIC). Budget constraints keep every tornado path from having a direct ground survey by NWS personnel; so spotter, chaser and news accounts may be used to rate relatively weak, remote or brief tornadoes. Killer tornadoes, those striking densely populated areas, or those generating reports of exceptional damage are given highest priority for ground surveys. Most ground surveys involve the WCM and/or forecasters not having shift responsibility the day of the survey. For outbreaks and unusually destructive events--usually only a few times a year--the NWS may support involvement by highly experienced damage survey experts and wind engineers from elsewhere in the country. Aerial surveys are expensive and usually reserved for tornado events with multiple casualties and/or massive degrees of damage. Sometimes, local NWS offices may have a cooperative agreement with local media, law enforcement, or Civil Air Patrol to use their aircraft during surveys. Unmanned aerial vehicles (drones) also can be used to map and find tornado damage, but are not always available. 
+
+There are also data entry errors. For example, the record of the Beaufort County tornado on April 25, 2014 (@tbl-cover-photo-event event 505635) includes estimated property damage of \$1.5 million while the NWS's narrative states \$15 million. In this case I adjusted the estimated property damage value.
+
+<br>
+
+## Most property damage
+
+```{r, fig.height=6, fig.width=14}
+#| label: fig-nc-tornado-tracks-v3
+#| fig-cap: "Top tornadoes causing ten largest amounts of estimated property damage in NC 1970-01-01 to 2023-04-30."
+#| fig-height: 6
+#| fig-width: 14
+#| column: screen-inset-right
+
+ggplot() +
+  geom_sf(data = nc_counties,
+          fill = NA, linewidth = 0.05) +
+  geom_sf(data = nc_cities,
+          fill = "grey85", color = NA) +
+  geom_sf(data = nc_state,
+          fill = NA, linewidth = 0.5,
+          color = "grey") +
+  geom_sf(data = dta |>
+            slice_max(damage_property_mil_2022, n = 10),
+          aes(color = damage_property_mil_2022)) +
+  #scale_color_continuous(trans = "log2") +
+  scale_color_gradient2(low = muted("blue"),
+                        high = muted("red"),
+                        trans = "log2") +
+  # scale_color_viridis_c(end = 0.85,
+  #                       trans = "log2") +
+  theme(panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = c(0.3, 0.3)) +
+  labs(
+    title = glue("Top tornadoes causing ten largest amounts of estimated property damage", 
+                 "\nin North Carolina 1970-01-01 to 2023-04-30"),
+    subtitle = "In millions of 2022 dollars",
+    caption = my_caption
+  )
+
+```
+
+<br>
+
+```{r}
+#| column: screen-inset-right
+
+data_for_modeling_with_cities |>
+  st_drop_geometry() |>
+  slice_max(damage_property_mil_2022, n = 10) |>
+  select(damage_property_mil_2022, n_intersects, length_mi, year, tor_f_scale, injuries_direct, injuries_indirect, 
+         deaths_direct, deaths_indirect) |>
+  mutate(length_mi = drop_units(length_mi)) |>
+  arrange(desc(damage_property_mil_2022)) |>
+  gt() |>
+  tab_header(md(glue("**Top tornadoes causing ten largest amounts of estimated property damage in NC since {year_start}**"))) |>
+  fmt_number(columns = damage_property_mil_2022,
+             decimals = 3) |>
+  fmt_number(columns = length_mi,
+             decimals = 1) |>
+  tab_source_note(md("*Data: NOAA Storm Events Database; analysis: Daniel Moul<br>damage_property_mil in millions of 2022 dollars*"))
+```
+
+<br>
+
+```{r}
+#| column: page-inset-right
+
+data_for_modeling_with_cities |>
+  st_drop_geometry() |>
+  slice_max(length_mi, n = 10) |>
+  select(length_mi, damage_property_mil, n_intersects, year, tor_f_scale, injuries_direct, injuries_indirect, 
+         deaths_direct, deaths_indirect) |>
+  mutate(length_mi = drop_units(length_mi)) |>
+  arrange(desc(damage_property_mil)) |>
+  gt() |>
+  tab_header(md(glue("**Ten longest tornadoes tracks and related property damage in NC since {year_start}**"))) |>
+  fmt_number(columns = damage_property_mil,
+             decimals = 3) |>
+  fmt_number(columns = length_mi,
+             decimals = 1) |>
+  tab_source_note(md("*Data: NOAA Storm Events Database; analysis: Daniel Moul<br>damage_property_mil in millions of dollars; not adjusted for inflation*"))
+```
+
+<br>
+
+## Variable associations with property damage
+
+The models below explain between 10% and 15% of the variance--a surprisingly low amount. I'm using nominal dollars (not adjusted for inflation), since the model results are a little better than when using constant dollars.
+
+```{r}
+#| column: page-inset-right
+#| message: false
+#| warning: false
+
+data_for_modeling <- data_for_modeling_with_cities |>
+  st_drop_geometry()
+
+mod1 <- lm(damage_property_mil ~ tor_f_scale,
+           data = data_for_modeling)
+
+mod1_tidy <- mod1 |>
+  tidy() |>
+  mutate(model_id = "mod1",
+         model_formula = "damage_property_mil ~ tor_f_scale") |>
+  bind_cols(glance(mod1)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+  
+mod2 <- lm(damage_property_mil ~ length_mi,
+           data = data_for_modeling) # note: rows with NA length_mi are omitted
+
+mod2_tidy <- mod2 |>
+  tidy() |>
+  mutate(model_id = "mod2",
+         model_formula = "damage_property_mil ~ length_mi") |>
+  bind_cols(glance(mod2)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod3 <- lm(damage_property_mil ~ tor_f_scale + length_mi,
+           data = data_for_modeling)
+
+mod3_tidy <- mod3 |>
+  tidy() |>
+  mutate(model_id = "mod3",
+         model_formula = "damage_property_mil ~ tor_f_scale + length_mi") |>
+  bind_cols(glance(mod3)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod4 <- lm(damage_property_mil ~ n_intersects + tor_f_scale,
+           data = data_for_modeling_with_cities)
+
+mod4_tidy <- mod4 |>
+  tidy() |>
+  mutate(model_id = "mod4",
+         model_formula = "damage_property_mil ~ n_intersects + tor_f_scale") |>
+  bind_cols(glance(mod4)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+model_table <- bind_rows(
+  mod1_tidy,
+  mod2_tidy,
+  mod3_tidy,
+  mod4_tidy
+) |>
+  filter(term != "(Intercept)")
+
+model_table |>
+  gt() |>
+  fmt_number(columns = c(estimate, std.error, adj.r.squared, sigma),
+             decimals = 3)
+
+```
+
+<br>
+
+In the models above, if a term changes by $1$, it results in an *estimate* change in the property damage in millions of dollars (nominial dollars--not adjusted for inflation). 
+
+Adjusted $R^2$ is the proportion of the variance explained by the linear regression.
+
+* mod1: there is not much correlation between property damage and force of the tornado.
+* mod2: there is not much correlation between property damage and the length of the tornado track.
+* mod3: there is not much correlation between property damage and both force and length of track.
+* mod4:including the number of intersections with populated areas does not improve the model materially. This is a surprise, since it seems to me the property damage would be higher the more times the tornado passes over a populated area.
+
+<br>
+
+## Property damage per year
+
+First a short digression: nominal dollars (not adjusted for inflation) over 50 years paints a distorted picture. @fig-property-damage-yearly presents the difference in perspective.
+
+```{r, fig.height=6, fig.width=15}
+#| label: fig-property-damage-yearly
+#| fig-cap: "Property damage per tornado yearly"
+#| fig-height: 6
+#| fig-width: 15
+#| warning: false
+#| column: page-inset-right
+
+yearly_property_damage <- dta_non_mapping |>
+  st_drop_geometry() |>
+  reframe(damage_property_mil = sum(damage_property_mil),
+          damage_property_mil_2022 = sum(damage_property_mil_2022),
+          n_tornadoes = n(),
+          .by = year) |>
+  mutate(damage_prop_mil_per_tornado = damage_property_mil / n_tornadoes,
+         damage_prop_mil_2022_per_tornado = damage_property_mil_2022 / n_tornadoes,
+         decade = as.factor(paste0(floor(year / 10) * 10, "s")))
+
+scale_y_max <- max(yearly_property_damage$damage_prop_mil_2022_per_tornado, na.rm = TRUE)
+scale_y_min <- min(yearly_property_damage$damage_prop_mil_2022_per_tornado, na.rm = TRUE)
+
+p1 <- yearly_property_damage |>
+  ggplot(aes(n_tornadoes, damage_prop_mil_per_tornado, color = decade)) +
+  geom_point(show.legend = FALSE) +
+  scale_x_continuous() + #expand = expansion(mult = c(0.01, 0.02))) +
+  scale_y_log10(labels = label_number(prefix = "$", suffix = "M"),
+                     expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_viridis_d(end = 0.85) +
+  coord_cartesian(ylim = c(0.65 * scale_y_min, 1.05 * scale_y_max)) + 
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(
+    subtitle = "Dollar amounts not adjusted for inflation",
+    x = NULL,
+    x = "Number of tornadoes recorded in year",
+    y = "Property damage per tornado in year (log10 scale)",
+    color = NULL,
+  )
+
+p2 <- yearly_property_damage |>
+  ggplot(aes(n_tornadoes, damage_prop_mil_2022_per_tornado, color = decade)) +
+  geom_point(show.legend = FALSE) +
+  scale_x_continuous() + #expand = expansion(mult = c(0.01, 0.02))) +
+  scale_y_log10(labels = label_number(prefix = "$", suffix = "M"),
+                     expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_viridis_d(end = 0.85) +
+  coord_cartesian(ylim = c(0.65 * scale_y_min, 1.05 * scale_y_max)) + 
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(
+    subtitle = "Dollar amounts in 2022 dollars",
+    x = "Number of tornadoes recorded in year",
+    y = NULL,
+    color = NULL,
+  )
+
+p3 <- yearly_property_damage |>
+  ggplot() +
+  geom_segment(aes(x = n_tornadoes, xend = n_tornadoes, 
+                   y = damage_prop_mil_per_tornado, yend = 0.95 * damage_prop_mil_2022_per_tornado, 
+                   color = decade), 
+               linewidth = 0.4, alpha = 0.4,
+               arrow = arrow(length = unit(1.5, "mm"),
+                             ends = "last",
+                             type = "closed"),
+               show.legend = FALSE) +
+  #geom_point(aes(x = n_tornadoes, y = damage_prop_mil_per_tornado, color = decade)) + 
+  geom_point(aes(x = n_tornadoes, y = damage_prop_mil_2022_per_tornado, color = decade)) + 
+  scale_x_continuous() + #expand = expansion(mult = c(0.01, 0.02))) +
+  scale_y_log10(labels = label_number(prefix = "$", suffix = "M"),
+                     expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_viridis_d(end = 0.85) +
+  coord_cartesian(ylim = c(0.65 * scale_y_min, 1.05 * scale_y_max)) + 
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = "right") +
+  guides(color = guide_legend(override.aes = list(size = 3,
+                                                  linewidth = 0))) +
+  labs(
+    subtitle = "The difference it makes adjusting for inflation",
+    x = "Number of tornadoes recorded in year",
+    y = NULL,
+    color = NULL,
+  )
+
+p1 + p2 + p3 +
+  plot_annotation(
+    title = "Estimated property damage per tornado each year",
+    caption = my_caption
+  )
+
+```
+
+<br>
+
+Before about 1996 it seems there were standard values used for property damage estimates, and even since then some values seem too common to be more than often-used estimates.
+
+```{r, fig.height=6, fig.width=12}
+#| label: fig-property-damage
+#| fig-cap: "Property damage per tornado"
+#| fig-height: 6
+#| fig-width: 12
+#| warning: false
+#| column: page-inset-right
+
+p1 <- dta_non_mapping |>
+  ggplot(aes(year, damage_property_mil, color = decade)) +
+  geom_jitter(size = 0.5, alpha = 0.6, show.legend = FALSE) +
+  scale_x_continuous(expand = expansion(mult = c(0.01, 0.02))) +
+  scale_y_log10(labels = label_number(prefix = "$", suffix = "M"),
+                     expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_viridis_d(end = 0.85) +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = "right") + #
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(
+    subtitle = "Dollar amounts not adjusted for inflation",
+    x = NULL,
+    y = "Property damage (log10 scale)",
+    color = NULL
+  )
+
+p2 <- dta_non_mapping |>
+  ggplot(aes(year, damage_property_mil_2022, color = decade)) +
+  geom_jitter(size = 0.5, alpha = 0.6) +
+  scale_x_continuous(expand = expansion(mult = c(0.01, 0.02))) +
+  scale_y_log10(labels = label_number(prefix = "$", suffix = "M"),
+                     expand = expansion(mult = c(0.01, 0.02))) +
+  scale_color_viridis_d(end = 0.85) +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = "right") + #
+  guides(color = guide_legend(override.aes = list(size = 3))) +
+  labs(
+    subtitle = "In 2022 dollars",
+    x = NULL,
+    y = NULL,
+    color = NULL
+  )
+
+p1 + p2 +
+  plot_annotation(
+    title = "Estimated property damage - each tornado",
+    caption = my_caption
+  )
+
+```
+
+<br>
+
+```{r}
+#| column: screen-inset-right
+
+yearly_property_damage |>
+  select(-decade) |>
+  gt() |>
+  tab_header(md(glue("**Estimated yearly property damage in NC caused by tornadoes**", 
+                     "<br>January 1, {year_start} to April 30, 2023"))) |>
+  fmt_number(columns = c(damage_property_mil, damage_property_mil_2022, 
+                         damage_prop_mil_per_tornado, damage_prop_mil_2022_per_tornado),
+             decimals = 3) |>
+  tab_source_note(md("*Data: NOAA Storm Events Database; analysis: Daniel Moul<br>damage_property_mil in millions of dollars*"))
+
+```
+
+<br>
+

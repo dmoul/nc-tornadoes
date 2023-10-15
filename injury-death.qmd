@@ -1,0 +1,446 @@
+# Injuries and deaths
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+source("./setup-and-data-prep.R")
+
+data_for_modeling_with_cities <- dta |>
+  mutate(intersect_populated_area = st_intersects(dta, nc_cities),
+         n_intersects = map_dbl(intersect_populated_area, function(x) length(x)),
+         injuries = injuries_direct + injuries_indirect,
+         deaths = deaths_direct + deaths_indirect
+         ) |>
+  mutate(event = paste0("Event ID ", event_id, ": ", event_narrative),
+         episode = paste0("Episode ID ", episode_id, ": ", episode_narrative)
+         ) |>
+  select(-intersect_populated_area) |>
+  bind_rows(dta_non_mapping) |>
+  distinct(event_id, .keep_all = TRUE)
+
+```
+
+In this chapter I combined direct and indirect injuries into `injuries` and direct and indirect deaths into `deaths`.
+
+There is no clear trend by year other than to note that in the last decade there have been relatively fewer injuries and deaths. Is this due to better warnings and better communication in the age of mobile phones? Probably at least in part. Perhaps also the residents of NC have been fortunate that there haven't been more strong and long-lived tornadoes in this period (see @fig-changes-in-detection-over-time panel C).
+
+```{r, fig.height=6, fig.width=8}
+#| label: fig-injuries-deaths-by-year
+#| fig-cap: "Tornado-related injuries and deaths January 1970 - April 2023"
+#| fig-height: 6
+#| fig-width: 8
+
+dta_non_mapping |>
+  mutate(injuries = injuries_direct + injuries_indirect,
+         deaths = deaths_direct + deaths_indirect) |>
+  select(year, injuries, deaths) |>
+  pivot_longer(cols = c(injuries, deaths), names_to = "type", values_to = "count") |>
+  mutate(type = factor(type, levels = c("injuries", "deaths"))) |>
+  count(year, type, wt = count) |>
+  ggplot() +
+  geom_point(aes(year, n, color = type),
+             show.legend = FALSE) +
+  scale_color_viridis_d(direction = 1,
+                        end = 0.85) +
+  facet_wrap(~type, scales = "free_y") +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold")) +
+  labs(
+    title = "Tornado-related injuries and deaths by year",
+    subtitle = "Direct and indirect",
+    x = NULL,
+    y = "Count (scale varies)",
+    caption = my_caption
+  )
+
+```
+
+
+## Injuries
+
+```{r, fig.height=6, fig.width=14}
+#| label: fig-nc-tornado-tracks-injuries
+#| fig-cap: "Tornado tracks in NC 1970-01-01 to 2023-04-30. Color indicates number of recorded injuries (direct and indirect)"
+#| fig-height: 6
+#| fig-width: 14
+#| column: screen-inset-right
+#| warning: false
+
+ggplot() +
+  geom_sf(data = nc_counties,
+          fill = NA, linewidth = 0.05) +
+  geom_sf(data = nc_cities,
+          fill = "grey85", color = NA) +
+  geom_sf(data = nc_state,
+          fill = NA, linewidth = 0.5,
+          color = "grey") +
+  geom_sf(data = data_for_modeling_with_cities,
+          aes(color = injuries)) +
+  # scale_color_viridis_c(end = 0.85,
+  #                       trans = "log2") +
+  scale_color_gradient(low = carolina_blue,
+                       high = "red",
+                       trans = "log2",
+  ) +
+  theme(panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = c(0.3, 0.3)) +
+  guides(color = guide_legend(override.aes = list(linewidth = 3),
+                              reverse = TRUE)) +
+  labs(
+    title = "Tornado tracks in North Carolina colored by injuries",
+    subtitle = "Grey tracks indicate no recorded injuries. 1970-01-01 to 2023-04-30.",
+    caption = my_caption,
+    color = "Injuries"
+  )
+
+```
+
+<br>
+
+```{r, fig.height=6, fig.width=14}
+#| label: fig-nc-tornado-tracks-ten-injuries
+#| fig-cap: "Tornadoes causing ten largest number of injuries in NC (direct and indirect) 1970-01-01 to 2023-04-30."
+#| fig-height: 6
+#| fig-width: 14
+#| column: screen-inset-right
+
+ggplot() +
+  geom_sf(data = nc_counties,
+          fill = NA, linewidth = 0.05) +
+  geom_sf(data = nc_cities,
+          fill = "grey85", color = NA) +
+  geom_sf(data = nc_state,
+          fill = NA, linewidth = 0.5,
+          color = "grey") +
+  geom_sf(data = data_for_modeling_with_cities |>
+            slice_max(injuries, n = 10),
+          aes(color = injuries)) +
+  # scale_color_continuous(trans = "log2") +
+  # scale_color_viridis_c(end = 0.85,
+  #                       trans = "log2") +
+  scale_color_gradient(low = carolina_blue,
+                       high = "red",
+                       trans = "log2",
+  ) +
+  theme(panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = c(0.3, 0.3)) +
+  labs(
+    title = "Tornadoes causing ten largest numbers of injuries in NC",
+    subtitle = "1970-01-01 to 2023-04-30",
+    caption = my_caption,
+    color = "Injuries"
+  )
+
+```
+
+<br>
+
+```{r}
+#| label: tbl-ten-most-injuries
+#| tbl-cap: Tornadoes causing ten largest number of injuries in NC since 1970
+#| column: screen-inset-right
+#| tbl-colwidths: [10,10,25,25,10,10,10]
+
+data_for_modeling_with_cities |>
+  st_drop_geometry() |>
+  slice_max(injuries, n = 10) |>
+  select(injuries, year, event, episode, n_intersects, tor_f_scale, length_mi) |>
+  mutate(length_mi = drop_units(length_mi)) |>
+  arrange(desc(injuries)) |>
+  gt() |>
+  #tab_header(md(glue("**Tornadoes causing ten largest number of injuries in NC since {year_start}**"))) |>
+  fmt_number(columns = length_mi,
+             decimals = 1) |>
+  sub_missing()
+```
+
+<br>
+
+## Variable associations with injuries
+
+The linear models below explain between 14% and 19% of the variance in number of injuries.
+
+```{r}
+#| label: tbl-models-injuries
+#| tbl-cap: "Linear models: variables having associations with injuries"
+#| column: page-inset-right
+#| message: false
+#| warning: false
+
+data_for_modeling <- data_for_modeling_with_cities |>
+  st_drop_geometry()
+
+mod1 <- lm(injuries ~ tor_f_scale,
+           data = data_for_modeling)
+
+mod1_tidy <- mod1 |>
+  tidy() |>
+  mutate(model_id = "mod1",
+         model_formula = "injuries ~ tor_f_scale") |>
+  bind_cols(glance(mod1)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+  
+mod2 <- lm(injuries ~ length_mi,
+           data = data_for_modeling) # note: rows with NA length_mi are omitted
+
+mod2_tidy <- mod2 |>
+  tidy() |>
+  mutate(model_id = "mod2",
+         model_formula = "injuries ~ length_mi") |>
+  bind_cols(glance(mod2)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod3 <- lm(injuries ~ tor_f_scale + length_mi,
+           data = data_for_modeling)
+
+mod3_tidy <- mod3 |>
+  tidy() |>
+  mutate(model_id = "mod3",
+         model_formula = "injuries ~ tor_f_scale + length_mi") |>
+  bind_cols(glance(mod3)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod4 <- lm(injuries ~ n_intersects + tor_f_scale,
+           data = data_for_modeling_with_cities)
+
+mod4_tidy <- mod4 |>
+  tidy() |>
+  mutate(model_id = "mod4",
+         model_formula = "injuries ~ n_intersects + tor_f_scale") |>
+  bind_cols(glance(mod4)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+model_table <- bind_rows(
+  mod1_tidy,
+  mod2_tidy,
+  mod3_tidy,
+  mod4_tidy
+) |>
+  filter(term != "(Intercept)")
+
+model_table |>
+  gt() |>
+  fmt_number(columns = c(estimate, std.error, adj.r.squared, sigma),
+             decimals = 3)
+
+```
+
+<br>
+
+In the models above, if a *term* changes by $1$, it results in an *estimate* change in the number of injuries. 
+
+Adjusted $R^2$ is the proportion of the variance explained by the linear regression.
+
+* mod1: there is not much correlation between injuries and force of the tornado.
+* mod2: there is not much correlation between injuries and the length of the tornado track.
+* mod3: there is not much correlation between injuries and both force and length of track.
+* mod4: including the number of intersections with populated areas does not improve the model materially. This is a surprise, since it seems to me the number of injuries would be higher the more times the tornado passes over a populated area.
+
+<br>
+
+## Deaths
+
+```{r, fig.height=6, fig.width=14}
+#| label: fig-nc-tornado-tracks-deaths
+#| fig-cap: "Tornado tracks in NC 1970-01-01 to 2023-04-30. Color indicates number of recorded deaths (direct and indirect)"
+#| fig-height: 6
+#| fig-width: 14
+#| column: screen-inset-right
+#| warning: false
+
+ggplot() +
+  geom_sf(data = nc_counties,
+          fill = NA, linewidth = 0.05) +
+  geom_sf(data = nc_cities,
+          fill = "grey85", color = NA) +
+  geom_sf(data = nc_state,
+          fill = NA, linewidth = 0.5,
+          color = "grey") +
+  geom_sf(data = data_for_modeling_with_cities,
+          aes(color = deaths)) +
+  # scale_color_viridis_c(end = 0.85,
+  #                       trans = "log2") +
+  scale_color_gradient(low = carolina_blue,
+                       high = "red",
+                       trans = "log2",
+  ) +
+  theme(panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = c(0.3, 0.3)) +
+  guides(color = guide_legend(override.aes = list(linewidth = 3),
+                              reverse = TRUE)) +
+  labs(
+    title = "Tornado tracks in North Carolina colored by deaths",
+    subtitle = "Grey tracks indicate no recorded deaths. 1970-01-01 to 2023-04-30.",
+    caption = my_caption,
+    color = "Deaths"
+  )
+
+```
+
+<br>
+
+```{r, fig.height=6, fig.width=14}
+#| label: fig-nc-tornado-tracks-ten-deaths
+#| fig-cap: "Tornadoes causing ten largest number of deaths in NC (direct and indirect) 1970-01-01 to 2023-04-30."
+#| fig-height: 6
+#| fig-width: 14
+#| column: screen-inset-right
+
+ggplot() +
+  geom_sf(data = nc_counties,
+          fill = NA, linewidth = 0.05) +
+  geom_sf(data = nc_cities,
+          fill = "grey85", color = NA) +
+  geom_sf(data = nc_state,
+          fill = NA, linewidth = 0.5,
+          color = "grey") +
+  geom_sf(data = data_for_modeling_with_cities |>
+            slice_max(deaths, n = 10),
+          aes(color = deaths)) +
+  # scale_color_continuous(trans = "log2") +
+  # scale_color_viridis_c(end = 0.85,
+  #                       trans = "log2") +
+  scale_color_gradient(low = carolina_blue,
+                       high = "red",
+                       trans = "log2",
+  ) +
+  theme(panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = rel(2.0), face = "bold"),
+        legend.position = c(0.3, 0.3)) +
+  guides(color = guide_legend(override.aes = list(linewidth = 3),
+                              reverse = TRUE)) +
+  labs(
+    title = "Tornadoes causing ten largest numbers of deaths in NC", 
+    subtitle = "1970-01-01 to 2023-04-30",
+    caption = my_caption,
+    color = "Deaths"
+  )
+
+```
+
+<br>
+
+```{r}
+#| label: tbl-ten-most-deaths
+#| tbl-cap: Tornadoes causing ten largest number of deaths in NC since 1970
+#| column: screen-inset-right
+#| tbl-colwidths: [10,10,25,25,10,10,10]
+#| output: asis
+
+data_for_modeling_with_cities |>
+  st_drop_geometry() |>
+  slice_max(deaths, n = 10) |>
+  select(deaths, year, event, episode, n_intersects, tor_f_scale, length_mi) |>
+  mutate(length_mi = drop_units(length_mi)) |>
+  arrange(desc(deaths)) |>
+  gt() |>
+  #tab_header(md(glue("**Tornadoes causing ten largest number of deaths in NC since {year_start}**"))) |>
+  fmt_number(columns = length_mi,
+             decimals = 1) |>
+  sub_missing()
+```
+
+<br>
+
+## Variable associations with death
+
+The linear models below explain between 10% and 14% of the variance in number of deaths.
+
+```{r}
+#| label: tbl-models-deaths
+#| tbl-cap: "Linear models: variables having associations with deaths"
+#| column: page-inset-right
+#| message: false
+#| warning: false
+
+data_for_modeling <- data_for_modeling_with_cities |>
+  st_drop_geometry()
+
+mod1 <- lm(deaths ~ tor_f_scale,
+           data = data_for_modeling)
+
+mod1_tidy <- mod1 |>
+  tidy() |>
+  mutate(model_id = "mod1",
+         model_formula = "deaths ~ tor_f_scale") |>
+  bind_cols(glance(mod1)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+  
+mod2 <- lm(deaths ~ length_mi,
+           data = data_for_modeling) # note: rows with NA length_mi are omitted
+
+mod2_tidy <- mod2 |>
+  tidy() |>
+  mutate(model_id = "mod2",
+         model_formula = "deaths ~ length_mi") |>
+  bind_cols(glance(mod2)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod3 <- lm(deaths ~ tor_f_scale + length_mi,
+           data = data_for_modeling)
+
+mod3_tidy <- mod3 |>
+  tidy() |>
+  mutate(model_id = "mod3",
+         model_formula = "deaths ~ tor_f_scale + length_mi") |>
+  bind_cols(glance(mod3)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+mod4 <- lm(deaths ~ n_intersects + tor_f_scale,
+           data = data_for_modeling_with_cities)
+
+mod4_tidy <- mod4 |>
+  tidy() |>
+  mutate(model_id = "mod4",
+         model_formula = "deaths ~ n_intersects + tor_f_scale") |>
+  bind_cols(glance(mod4)) |>
+  select(model_id, model_formula, term, estimate, std.error, adj.r.squared, sigma, nobs)
+
+model_table <- bind_rows(
+  mod1_tidy,
+  mod2_tidy,
+  mod3_tidy,
+  mod4_tidy
+) |>
+  filter(term != "(Intercept)")
+
+model_table |>
+  gt() |>
+  fmt_number(columns = c(estimate, std.error, adj.r.squared, sigma),
+             decimals = 3)
+
+```
+
+<br>
+
+In the models above, if a *term* changes by $1$, it results in an *estimate* change in the number of deaths. 
+
+Adjusted $R^2$ is the proportion of the variance explained by the linear regression.
+
+* mod1: there is not much correlation between deaths and force of the tornado.
+* mod2: there is not much correlation between deaths and the length of the tornado track.
+* mod3: there is not much correlation between deaths and both force and length of track.
+* mod4: as with injuries, including the number of intersections with populated areas does not improve the model materially. This is a surprise, since it seems to me the number of deaths would be higher the more times the tornado passes over a populated area.
+
+<br>

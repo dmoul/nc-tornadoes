@@ -1,0 +1,54 @@
+# Introduction {.unnumbered}
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+source("./setup-and-data-prep.R")
+
+```
+
+NOAA National Centers for Environmental Information^[<https://www.ncei.noaa.gov/about-us> ] make Tornado event data available for download from their Storm Events Database^[<http://www.ncdc.noaa.gov/stormevents/> is just one of their many products]. Tornado event data is available from 1950 to the present. Specifically for this project, I downloaded 53+ years of North Carolina data^[<https://www.ncdc.noaa.gov/stormevents/choosedates.jsp?statefips=37%2CNORTH+CAROLINA> ] (1970-01-01 through 2023-04-30), which was the most current available when I downloaded it on 2023-08-11. The data comes from NOAA's National Weather Service (NWS).
+
+The data set includes `r comma(nrow(d_raw_tmp))` tornado events (one record per event). Multiple events may be associated with one tornado, and multiple tornadoes can occur in one episode. When plotting tracks I filtered out records that lacked beginning or ending coordinates as well as one record with obviously bad data, leaving me with `r comma(nrow(dta))` (`r percent(nrow(dta) / nrow(d_raw_tmp))`) tracks to work with. All missing coordinates are in records of tornadoes prior to 2005. Plots and models not requiring coordinates or distances or relationships derived from them use the full set of `r comma(nrow(dta_non_mapping))` events.
+
+The method for counting tornadoes is summarized on Storm Data FAQ Page^[<https://www.ncdc.noaa.gov/stormevents/faq.jsp> ]
+
+>Tornadoes may contain multiple segments. A tornado that crosses a county line or state line is considered a separate segment. Also, a tornado that lifts off the ground for less than 4 minutes or 2 miles is considered a separate tornado segment. If the tornado lifts off the ground for greater than 4 minutes or 2 miles, it is considered a separate tornado. Tornadoes reported in Storm Data and the Storm Events Database are in segments. For official tornado counts by state, please use the [monthly counts at the Storms Prediction Center Tornado Data](http://www.spc.noaa.gov/climo/torn/monthlytornstats.html).
+
+Since it's non-trivial to determine from the data which segments are continuations of the same tornado (see @sec-combine-events), the counts, plots and models in this analysis are of *tornado segments* rather than tornadoes. *Event* and *segment* are synonymous.
+
+Data generating processes have a profound effect on the data they leave behind. Over these 50+ years undoubtedly there were many changes in NWS instruments, policies, budgets, and staffing.
+
+For example, the accuracy of track data improved over the years as noted on the Storm Data FAQ Page. See [How accurate are the latitude and longitude locations?](https://www.ncdc.noaa.gov/stormevents/faq.jsp).
+
+Another example^[<https://www.weather.gov/wrn/spring2016-article-surveying-storm> published February 16, 2016] of improved tools:
+
+>One thing that has changed considerably over the past 30 years is the technology used to conduct a damage survey. As Brian Smith recalled, “I remember years ago using maps, pencil, pens, and an odometer as a guide.” Advancements with digital cameras and GPS help make the survey process more accurate. Within the past few years, a new software developed by the National Weather Service, called the Damage Assessment Toolkit (DAT), harnesses the power of smartphones and tablets. Using these devices, with just a few finger taps, forecasters can now take pictures of the damage, rate the damage using the EF scale, and upload the information to a server that can be viewed instantaneously back at the local NWS office. All the images are geocoded and can be easily mapped out to calculate the exact track of the tornado. At times, aerial surveys are also done to get a scope of the damage track. High-resolution satellite imagery is another tool that can be requested to help forecasters determine the exact track of the tornado by looking at vegetation scars. Brian hopes in the future that drones may also be used to gather information from a bird’s eye view.
+
+We can infer some of the changes from patterns in the data. See for example *@sec-changes-detection-over-time Changes in detection over time*.
+
+<br>
+
+## Acknowledgements {.unnumbered}
+
+Thanks to the people of the US National Weather Service and NOAA National Centers for Environmental Information for making this data so easily accessible.
+
+The image above is from the National Weather Service's page [EF-3 Tornado Hits Beaufort County](https://www.weather.gov/mhx/April25Tornado) April 25, 2014 (image courtesy WNCT). The related narratives are below.
+
+```{r}
+#| label: tbl-cover-photo-event
+#| tbl-cap: "National Weather Service event and episode narratives"
+
+dta_non_mapping |>
+  filter(event_id == "505635") |>
+  mutate(event = paste0("Event ID ", event_id, ": ", event_narrative),
+         episode = paste0("Episode ID ", episode_id, ": ", episode_narrative)
+         ) |>
+  select(begin_datetime, event, episode) |>
+  gt()
+
+```
+
+<br>
