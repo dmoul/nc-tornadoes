@@ -4,6 +4,8 @@ Five decades of tornadoes in North Carolina and changes in the data generating p
 
 Data from the [Storm Events](http://www.ncdc.noaa.gov/stormevents/) Database published by [NOAA National Centers for Environmental Information](https://www.ncei.noaa.gov/about-us).
 
+Published at <https://dmoul.github.io>
+
 
 ## Licenses
 
